@@ -1,0 +1,29 @@
+{
+  "name": "nitara-app",
+  "version": "1.0.0",
+  "description": "Nitara sample microservice",
+  "main": "src/server.js",
+  "scripts": {
+    "start":   "node src/server.js",
+    "dev":     "nodemon src/server.js",
+    "test":    "jest --coverage --forceExit"
+  },
+  "dependencies": {
+    "express":       "^4.18.2",
+    "mssql":         "^10.0.1",
+    "minio":         "^7.1.3",
+    "kafkajs":       "^2.2.4",
+    "dotenv":        "^16.3.1",
+    "winston":       "^3.11.0"
+  },
+  "devDependencies": {
+    "jest":          "^29.7.0",
+    "supertest":     "^6.3.3",
+    "nodemon":       "^3.0.2"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "coverageDirectory": "coverage",
+    "collectCoverageFrom": ["src/**/*.js"]
+  }
+}
