@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────────────────────
+#  ArgoCD Application — DEV cluster (Vmbr-30)
+#
+#  ArgoCD watches this repo. When Jenkins commits a new
+#  image tag to k8s/values/dev-values.yaml, ArgoCD
+#  automatically applies the Helm chart to the DEV cluster.
+#
+#  Apply: kubectl apply -f argocd/application-dev.yaml -n argocd
+# ─────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nitara-todo-dev
+  namespace: argocd
+spec:
+  project: default
+
+  # Where the Helm chart + values live (this repo)
+  source:
+    repoURL:        https://github.com/YOUR-ORG/nitara-todo-demo.git
+    targetRevision: HEAD
+    path:           k8s
+    helm:
+      valueFiles:
+      - values/dev-values.yaml
+
+  # Which K8s cluster and namespace to deploy to
+  destination:
+    server:    https://dev-api.nitara.internal:6443   # Vmbr-30 DEV cluster
+    namespace: todo-dev
+
+  # Auto-sync ON for DEV — ArgoCD deploys automatically
+  syncPolicy:
+    automated:
+      prune:    true      # remove K8s resources deleted from Git
+      selfHeal: true      # revert any manual kubectl changes
+    syncOptions:
+    - CreateNamespace=true

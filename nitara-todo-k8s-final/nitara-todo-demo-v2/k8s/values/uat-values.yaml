@@ -1,0 +1,23 @@
+# ── UAT environment — Vmbr-40 UAT cluster ────────────────────
+#
+# Promoted manually from DEV after testing.
+# Copy image tag from dev-values.yaml and push.
+# ArgoCD syncs UAT cluster when it detects the commit.
+#
+replicas: 2
+appEnv: uat
+
+image:
+  repository: registry.nitara.internal/nitara-todo-demo
+  tag: "main-abc1234-1"        # ← copy tag from dev-values.yaml
+
+ingress:
+  host: todo.uat.nitara.internal
+
+resources:
+  requests:
+    cpu: "200m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"

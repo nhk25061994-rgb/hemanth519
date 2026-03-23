@@ -1,0 +1,23 @@
+# ── DEV environment — Vmbr-30 DEV cluster ────────────────────
+#
+# Jenkins automatically updates `image.tag` here
+# after every successful build on main branch.
+# ArgoCD detects this commit and syncs to DEV K8s cluster.
+#
+replicas: 1
+appEnv: dev
+
+image:
+  repository: registry.nitara.internal/nitara-todo-demo
+  tag: "main-abc1234-1"        # ← Jenkins updates this line
+
+ingress:
+  host: todo.dev.nitara.internal
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "250m"
+    memory: "256Mi"

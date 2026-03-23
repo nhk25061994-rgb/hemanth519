@@ -1,0 +1,151 @@
+// ─────────────────────────────────────────────────────────────
+//  Nitara Todo Demo — Jenkinsfile
+//
+//  NO DOCKER. Runs fully inside Kubernetes.
+//
+//  Flow:
+//    1. Checkout code
+//    2. npm install + npm test  (inside K8s node pod)
+//    3. Kaniko builds + pushes image  (inside K8s kaniko pod)
+//    4. Jenkins commits new image tag to k8s/values/dev-values.yaml
+//    5. ArgoCD detects commit → syncs Helm chart → DEV cluster
+//
+//  Jenkins runs on : Vmbr-20 management cluster
+//  Image build     : Kaniko pod  (no Docker daemon needed)
+//  Deploy          : ArgoCD only (no kubectl here)
+// ─────────────────────────────────────────────────────────────
+pipeline {
+
+  // All stages run inside K8s pods — zero Docker
+  agent {
+    kubernetes {
+      yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+
+  # Node.js — runs npm install and npm test
+  - name: node
+    image: node:20-alpine
+    command: [cat]
+    tty: true
+
+  # Kaniko — builds and pushes image without Docker daemon
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:latest
+    command: [cat]
+    tty: true
+    volumeMounts:
+    - name: registry-secret
+      mountPath: /kaniko/.docker
+
+  volumes:
+  # Registry credentials — create this secret once in Jenkins namespace:
+  #   kubectl create secret docker-registry registry-secret \\
+  #     --docker-server=registry.nitara.internal \\
+  #     --docker-username=YOUR_USER \\
+  #     --docker-password=YOUR_PASS \\
+  #     -n jenkins
+  - name: registry-secret
+    secret:
+      secretName: registry-secret
+      items:
+      - key: .dockerconfigjson
+        path: config.json
+"""
+    }
+  }
+
+  environment {
+    APP_NAME  = 'nitara-todo-demo'
+    REGISTRY  = 'registry.nitara.internal'
+    IMAGE     = "${REGISTRY}/${APP_NAME}"
+    SHORT_SHA = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+    IMAGE_TAG = "${env.BRANCH_NAME}-${SHORT_SHA}-${env.BUILD_NUMBER}"
+  }
+
+  options {
+    timeout(time: 20, unit: 'MINUTES')
+    disableConcurrentBuilds()
+    buildDiscarder(logRotator(numToKeepStr: '10'))
+  }
+
+  stages {
+
+    // ── 1. Checkout ──────────────────────────────────────────
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    // ── 2. Install & Test ────────────────────────────────────
+    //    Runs inside node:20-alpine K8s pod.
+    //    If any test fails, pipeline stops — nothing gets deployed.
+    stage('Install & Test') {
+      steps {
+        container('node') {
+          sh '''
+            npm ci
+            npm test
+          '''
+        }
+      }
+    }
+
+    // ── 3. Build & Push with Kaniko ──────────────────────────
+    //    Kaniko reads the Dockerfile and builds the image
+    //    entirely inside a K8s pod — no Docker daemon,
+    //    no Docker socket, no privileged container needed.
+    //    It pushes directly to registry.nitara.internal.
+    stage('Build & Push Image') {
+      steps {
+        container('kaniko') {
+          sh """
+            /kaniko/executor \
+              --context=dir://. \
+              --dockerfile=Dockerfile \
+              --destination=${IMAGE}:${IMAGE_TAG} \
+              --destination=${IMAGE}:latest \
+              --cache=true \
+              --cache-repo=${REGISTRY}/cache
+          """
+        }
+      }
+    }
+
+    // ── 4. Update image tag → ArgoCD picks it up ─────────────
+    //    Jenkins commits the new tag to dev-values.yaml.
+    //    ArgoCD detects the commit automatically and applies
+    //    the updated Helm chart to DEV cluster (Vmbr-30).
+    //    No kubectl. No manual deploy. ArgoCD handles it all.
+    stage('Update Image Tag') {
+      when { branch 'main' }
+      steps {
+        container('node') {
+          withCredentials([usernamePassword(
+            credentialsId: 'github-creds',
+            usernameVariable: 'GIT_USER',
+            passwordVariable: 'GIT_PASS'
+          )]) {
+            sh """
+              git config user.email "jenkins@nitara.internal"
+              git config user.name  "Jenkins CI"
+
+              sed -i 's|^  tag:.*|  tag: "${IMAGE_TAG}"|' k8s/values/dev-values.yaml
+
+              git add k8s/values/dev-values.yaml
+              git commit -m "ci(dev): ${APP_NAME} → ${IMAGE_TAG} [skip ci]"
+              git push https://\$GIT_USER:\$GIT_PASS@github.com/YOUR-ORG/nitara-todo-demo.git HEAD:main
+            """
+          }
+        }
+      }
+    }
+  }
+
+  post {
+    success { echo "SUCCESS: ${IMAGE}:${IMAGE_TAG} | ArgoCD will sync DEV cluster" }
+    failure { echo "FAILED  : no image pushed, no deploy triggered" }
+    always  { cleanWs() }
+  }
+}

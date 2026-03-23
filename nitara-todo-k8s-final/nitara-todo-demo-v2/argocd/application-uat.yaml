@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────────────────────
+#  ArgoCD Application — UAT cluster (Vmbr-40)
+#
+#  Auto-sync OFF for UAT — ops team manually triggers sync
+#  after promoting image tag from dev-values.yaml.
+#
+#  Apply: kubectl apply -f argocd/application-uat.yaml -n argocd
+# ─────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nitara-todo-uat
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL:        https://github.com/YOUR-ORG/nitara-todo-demo.git
+    targetRevision: HEAD
+    path:           k8s
+    helm:
+      valueFiles:
+      - values/uat-values.yaml
+
+  destination:
+    server:    https://uat-api.nitara.internal:6443   # Vmbr-40 UAT cluster
+    namespace: todo-uat
+
+  # Auto-sync OFF for UAT — manual promote only
+  syncPolicy:
+    syncOptions:
+    - CreateNamespace=true
